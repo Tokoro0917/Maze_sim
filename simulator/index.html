@@ -1,0 +1,659 @@
+<!doctype html>
+<title>Maze_Dijkstra Simulator</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --panel: #ffffff;
+    --text: #1c2330;
+    --muted: #6b7280;
+    --border: #dde1e8;
+    --accent: #2563eb;
+    --wall: #1c2330;
+    --grid: #c7cdd6;
+    --goal: #16a34a;
+    --start: #d97706;
+    --path: #2563eb;
+    --mouse: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1420;
+      --panel: #171d2c;
+      --text: #e6e9f0;
+      --muted: #97a1b3;
+      --border: #2b3348;
+      --accent: #60a5fa;
+      --wall: #e6e9f0;
+      --grid: #333d54;
+      --goal: #4ade80;
+      --start: #fbbf24;
+      --path: #60a5fa;
+      --mouse: #f87171;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1420; --panel: #171d2c; --text: #e6e9f0; --muted: #97a1b3;
+    --border: #2b3348; --accent: #60a5fa; --wall: #e6e9f0; --grid: #333d54;
+    --goal: #4ade80; --start: #fbbf24; --path: #60a5fa; --mouse: #f87171;
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f7fb; --panel: #ffffff; --text: #1c2330; --muted: #6b7280;
+    --border: #dde1e8; --accent: #2563eb; --wall: #1c2330; --grid: #c7cdd6;
+    --goal: #16a34a; --start: #d97706; --path: #2563eb; --mouse: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 16px; }
+  .layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .canvas-wrap { flex: 0 0 auto; }
+  #mazeCanvas { display: block; max-width: 100%; height: auto; }
+  .side { flex: 1 1 360px; min-width: 320px; display: flex; flex-direction: column; gap: 14px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  button:active { transform: translateY(1px); }
+  label.toggle { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text); user-select: none; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 0.85rem; }
+  .stats div.k { color: var(--muted); }
+  .stats div.v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.78rem; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .note {
+    font-size: 0.8rem;
+    color: var(--text);
+    background: rgba(217, 119, 6, 0.12);
+    border: 1px solid var(--start);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  table.arr { border-collapse: collapse; font-size: 0.72rem; width: 100%; }
+  table.arr th, table.arr td {
+    border: 1px solid var(--border);
+    padding: 2px 5px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  table.arr th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+  .arr-scroll { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .section-title { font-size: 0.9rem; font-weight: 600; margin: 0 0 8px; }
+  input[type="range"] { width: 110px; }
+</style>
+
+<div class="layout">
+  <div>
+    <h1>Maze_Dijkstra シミュレータ</h1>
+    <p class="sub">Maze_Dijkstra.c のアルゴリズムを忠実に JavaScript へ移植し、迷路・探索コスト・最短経路を可視化しています。</p>
+    <div class="panel canvas-wrap">
+      <canvas id="mazeCanvas" width="720" height="720"></canvas>
+    </div>
+    <div class="panel" style="margin-top:14px;">
+      <div class="controls">
+        <button id="playBtn">再生</button>
+        <button id="stepBtn" class="secondary">1ステップ</button>
+        <button id="resetBtn" class="secondary">リセット</button>
+        <label class="toggle"><input type="checkbox" id="costToggle" checked>コスト表示</label>
+        <label class="toggle"><input type="checkbox" id="pathToggle" checked>経路表示</label>
+        <label class="toggle">速度<input type="range" id="speed" min="1" max="10" value="5"></label>
+      </div>
+      <div class="legend" style="margin-top:10px;">
+        <span><i class="swatch" style="background:var(--wall)"></i>壁</span>
+        <span><i class="swatch" style="background:var(--start)"></i>スタート</span>
+        <span><i class="swatch" style="background:var(--goal)"></i>ゴール</span>
+        <span><i class="swatch" style="background:var(--path)"></i>最短経路</span>
+        <span><i class="swatch" style="background:var(--mouse)"></i>マウス（アニメーション）</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="panel">
+      <p class="section-title">探索結果</p>
+      <div class="stats">
+        <div class="k">展開ノード数</div><div class="v" id="statPopped"></div>
+        <div class="k">スタートコスト（総コスト）</div><div class="v" id="statStartCost"></div>
+        <div class="k">経路セル数</div><div class="v" id="statPathLen"></div>
+        <div class="k">最終位置</div><div class="v" id="statFinalPos"></div>
+        <div class="k">最終方向 (final_dir)</div><div class="v" id="statFinalDir"></div>
+        <div class="k">現在ステップ</div><div class="v" id="statStep"></div>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>移植時に見つかった注意点：</strong>
+      C側 (<code>main()</code> の経路復元ループ) では <code>final_dir</code> がループ開始時点の方向のまま更新されず、
+      ゴール到達直前の実際の向きではなく「スタート直後の向き」が使われています（<code>last_dir</code> が一度も再代入されない）。
+      このシミュレータは C の挙動をそのまま再現していますが、ロボットの初期姿勢設定に使うなら要確認です。
+    </div>
+
+    <div class="panel">
+      <p class="section-title">生配列（C の最終 printf と同じ内容）</p>
+      <div class="arr-scroll">
+        <table class="arr" id="arrTable">
+          <thead><tr><th>i</th><th>PASS</th><th>CP</th><th>NANAME</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   1) Maze_Dijkstra.c の忠実な移植（アルゴリズム部分）
+   ============================================================ */
+const DIJK_WALLCOST = 1000;
+const ST_COST = 5;
+const DIAG_COST = 4;
+const CON_COST = 2;
+const G_Gool_X = 7, G_Gool_Y = 7;
+
+function makeMaze() {
+  const Row = [
+    0b1111111111111111, 0b1010110011110100, 0b0100110010101010, 0b1001110011010000,
+    0b0111100010101000, 0b0111110001010000, 0b0100001010101000, 0b0100000110010000,
+    0b0110001001100000, 0b0011010110110000, 0b0010111001110000, 0b0101010010100000,
+    0b0011000001011000, 0b0010110111010000, 0b0101110001110000, 0b0010101111111000,
+    0b1111111111111111,
+  ];
+  const Column = [
+    0b1111111111111111, 0b0111111111111101, 0b1111111111011110, 0b0111101110101010,
+    0b0010110011010100, 0b0000000010101010, 0b0000000101010100, 0b0010001110101000,
+    0b0100101001011010, 0b0101110010111110, 0b0000100101011010, 0b1001001011000000,
+    0b0000010111000010, 0b0000101011000101, 0b0011011010101010, 0b0110101010100001,
+    0b1111111111111111,
+  ];
+  return { Row, Column };
+}
+
+function solveMaze(maze) {
+  const { Row: MazeRow, Column: MazeColumn } = maze;
+
+  function makeGrid(isRow) {
+    const g = [];
+    for (let x = 0; x < 17; x++) {
+      g.push([]);
+      for (let y = 0; y < 17; y++) {
+        g[x].push({ cost: 999, x, y, direction: 0, isRow: isRow ? 1 : 0, isConfirm: 0 });
+      }
+    }
+    return g;
+  }
+  const nodeRow = makeGrid(true);
+  const nodeColumn = makeGrid(false);
+
+  for (let i = 0; i < 17; i++) {
+    for (let j = 0; j < 17; j++) {
+      if ((MazeRow[j] & (1 << i)) === (1 << i)) nodeRow[i][j].cost = DIJK_WALLCOST;
+      if ((MazeColumn[i] & (1 << j)) === (1 << j)) nodeColumn[i][j].cost = DIJK_WALLCOST;
+    }
+  }
+
+  class MinHeap {
+    constructor() { this.d = []; }
+    push(n) {
+      const a = this.d; a.push(n); let i = a.length - 1;
+      while (i !== 0 && a[(i - 1) >> 1].cost > a[i].cost) {
+        const p = (i - 1) >> 1; [a[i], a[p]] = [a[p], a[i]]; i = p;
+      }
+    }
+    pop() {
+      const a = this.d;
+      if (a.length === 0) return null;
+      if (a.length === 1) return a.pop();
+      const root = a[0]; a[0] = a.pop(); let i = 0;
+      while (true) {
+        const l = 2 * i + 1, r = 2 * i + 2; let s = i;
+        if (l < a.length && a[l].cost < a[s].cost) s = l;
+        if (r < a.length && a[r].cost < a[s].cost) s = r;
+        if (s !== i) { [a[i], a[s]] = [a[s], a[i]]; i = s; } else break;
+      }
+      return root;
+    }
+  }
+
+  const heap = new MinHeap();
+  nodeRow[G_Gool_X][G_Gool_Y + 1].cost = 0;
+  nodeRow[G_Gool_X + 1][G_Gool_Y + 1].cost = 0;
+  nodeColumn[G_Gool_X + 1][G_Gool_Y].cost = 0;
+  nodeColumn[G_Gool_X + 1][G_Gool_Y + 1].cost = 0;
+  heap.push(nodeRow[G_Gool_X][G_Gool_Y + 1]);
+  heap.push(nodeRow[G_Gool_X + 1][G_Gool_Y + 1]);
+  heap.push(nodeColumn[G_Gool_X + 1][G_Gool_Y]);
+  heap.push(nodeColumn[G_Gool_X + 1][G_Gool_Y + 1]);
+
+  const inBounds = (x, y) => x >= 0 && x <= 16 && y >= 0 && y <= 16;
+  const relax = (popNode, grid, x, y, dirIfMatch, costIfMismatch) => {
+    if (!inBounds(x, y)) return;
+    const target = grid[x][y];
+    if (target.cost !== DIJK_WALLCOST && target.isConfirm !== 1) {
+      const nextCost = popNode.cost + (popNode.direction === dirIfMatch ? CON_COST : costIfMismatch);
+      if (target.cost > nextCost) {
+        target.cost = nextCost;
+        target.direction = dirIfMatch;
+        heap.push(target);
+      }
+    }
+  };
+
+  let popped = 0;
+  while (true) {
+    const popNode = heap.pop();
+    if (!popNode) break;
+    if (popNode.isConfirm === 1) continue;
+    popNode.isConfirm = 1;
+    popped++;
+
+    if (popNode.isRow === 1) {
+      relax(popNode, nodeRow, popNode.x, popNode.y + 1, 0, ST_COST);
+      relax(popNode, nodeRow, popNode.x, popNode.y - 1, 4, ST_COST);
+      relax(popNode, nodeColumn, popNode.x, popNode.y, 7, DIAG_COST);
+      relax(popNode, nodeColumn, popNode.x + 1, popNode.y, 1, DIAG_COST);
+      relax(popNode, nodeColumn, popNode.x, popNode.y - 1, 5, DIAG_COST);
+      relax(popNode, nodeColumn, popNode.x + 1, popNode.y - 1, 3, DIAG_COST);
+    } else {
+      relax(popNode, nodeColumn, popNode.x + 1, popNode.y, 2, ST_COST);
+      relax(popNode, nodeColumn, popNode.x - 1, popNode.y, 6, ST_COST);
+      relax(popNode, nodeRow, popNode.x, popNode.y + 1, 1, DIAG_COST);
+      relax(popNode, nodeRow, popNode.x, popNode.y, 3, DIAG_COST);
+      relax(popNode, nodeRow, popNode.x - 1, popNode.y + 1, 7, DIAG_COST);
+      relax(popNode, nodeRow, popNode.x - 1, popNode.y, 5, DIAG_COST);
+    }
+  }
+
+  // --- backward path reconstruction (mirrors Maze_Dijkstra.c main(), lines ~383-517) ---
+  const shortPass = new Array(255).fill(0);
+  let curX = 0, curY = 1, curIsRow = true;
+  const initialDir = (nodeRow[0][1].direction + 4) % 8;
+  let N = 0;
+  let finalX = 0, finalY = 0, finalDir = 0;
+  const cellPath = [{ x: curX, y: curY, isRow: curIsRow }];
+
+  let guard = 0;
+  while (true) {
+    if (++guard > 10000) throw new Error("path reconstruction did not terminate");
+    const node = curIsRow ? nodeRow[curX][curY] : nodeColumn[curX][curY];
+    if (node.cost === 0) {
+      finalX = node.x; finalY = node.y; finalDir = initialDir; // faithfully reproduces the C quirk: last_dir is never reassigned
+      break;
+    }
+    const toGoolDirection = (node.direction + 4) % 8;
+    switch (toGoolDirection) {
+      case 0: if (shortPass[N] < 0) N++; shortPass[N] += 2; curY++; break;
+      case 1:
+        N++;
+        if (curIsRow) { shortPass[N] = -3; curX++; curIsRow = false; }
+        else { shortPass[N] = -2; curY++; curIsRow = true; }
+        break;
+      case 2: if (shortPass[N] < 0) N++; shortPass[N] += 2; curX++; break;
+      case 3:
+        N++;
+        if (curIsRow) { shortPass[N] = -2; curX++; curY--; curIsRow = false; }
+        else { shortPass[N] = -3; curIsRow = true; }
+        break;
+      case 4: if (shortPass[N] < 0) N++; shortPass[N] += 2; curY--; break;
+      case 5:
+        N++;
+        if (curIsRow) { shortPass[N] = -3; curY--; curIsRow = false; }
+        else { shortPass[N] = -2; curX--; curIsRow = true; }
+        break;
+      case 6: if (shortPass[N] < 0) N++; shortPass[N] += 2; curX--; break;
+      case 7:
+        N++;
+        if (curIsRow) { shortPass[N] = -2; curIsRow = false; }
+        else { shortPass[N] = -3; curX--; curY++; curIsRow = true; }
+        break;
+    }
+    cellPath.push({ x: curX, y: curY, isRow: curIsRow, dir: toGoolDirection });
+  }
+  if (shortPass[0] === 0) shortPass[0] = -1;
+
+  function compress(shortPass) {
+    const cp = new Array(255).fill(0);
+    let i;
+    for (i = 0; shortPass[i] !== 0; i++) cp[i] = shortPass[i];
+    shortPass[i] = 1;
+    cp[i] = 1;
+    cp[0] = 1;
+    for (i = 0; cp[i] !== 0; i++) {
+      if (cp[i] === -2) {
+        if (cp[i - 1] > 0) {
+          if (shortPass[i + 1] > 0) {
+            cp[i - 1] -= 1; cp[i] = -4; cp[i + 1] -= 1;
+          } else if (shortPass[i + 1] === -2 && shortPass[i + 2] > 0) {
+            cp[i - 1] -= 1; cp[i] = -5; cp[i + 1] = -1; cp[i + 2] -= 1;
+          }
+          if (cp[i - 1] === 0) cp[i - 1] = -1;
+          if (cp[i + 1] === 0) cp[i + 1] = -1;
+        }
+      } else if (cp[i] === -3) {
+        if (cp[i - 1] > 0) {
+          if (cp[i + 1] > 0) {
+            cp[i - 1] -= 1; cp[i] = -6; cp[i + 1] -= 1;
+          } else if (shortPass[i + 1] === -3 && shortPass[i + 2] > 0) {
+            cp[i - 1] -= 1; cp[i] = -7; cp[i + 1] = -1; cp[i + 2] -= 1;
+          }
+          if (cp[i - 1] === 0) cp[i - 1] = -1;
+          if (cp[i + 1] === 0) cp[i + 1] = -1;
+        }
+      }
+    }
+    return cp;
+  }
+
+  function compressNaname(cp) {
+    const naname = new Array(255).fill(0);
+    let i;
+    for (i = 0; cp[i] !== 0; i++) naname[i] = cp[i];
+    let nanameFlag = 0;
+    const passZeroAct = () => {
+      if (naname[i - 1] === 0) naname[i - 1] = -1;
+      if (naname[i + 1] === 0) naname[i + 1] = -1;
+      if (naname[i + 2] === 0) naname[i + 2] = -1;
+    };
+    for (i = 0; naname[i] !== 0; i++) {
+      if (naname[i] === -2 || naname[i] === -3) {
+        if (naname[i - 1] > 0) {
+          if (naname[i] === -2) {
+            if (naname[i + 1] === -3) {
+              naname[i - 1] -= 1; naname[i] = -51; nanameFlag = 1; passZeroAct();
+            } else if (naname[i + 1] === -2) {
+              naname[i - 1] -= 1; naname[i] = -52; naname[i + 1] = -1; nanameFlag = 1; passZeroAct();
+            }
+          } else if (naname[i] === -3) {
+            if (naname[i + 1] === -2) {
+              naname[i - 1] -= 1; naname[i] = -53; nanameFlag = 1; passZeroAct();
+            } else if (naname[i + 1] === -3) {
+              naname[i - 1] -= 1; naname[i] = -54; naname[i + 1] = -1; nanameFlag = 1; passZeroAct();
+            }
+          }
+        } else if (naname[i + 1] >= 0 && nanameFlag === 1) {
+          if (naname[i] === -3) { naname[i] = -63; naname[i + 1] -= 1; passZeroAct(); }
+          else if (naname[i] === -2) { naname[i] = -61; naname[i + 1] -= 1; passZeroAct(); }
+          nanameFlag = 0;
+        } else if (naname[i + 2] >= 0 && nanameFlag === 1) {
+          if (naname[i] === naname[i + 1]) {
+            if (naname[i] === -3) { naname[i] = -64; naname[i + 1] = -1; naname[i + 2] -= 1; passZeroAct(); }
+            else if (naname[i] === -2) { naname[i] = -62; naname[i + 1] = -1; naname[i + 2] -= 1; passZeroAct(); }
+            nanameFlag = 0;
+          } else {
+            if (naname[i] === -2 || naname[i] === -3) {
+              if (naname[i] === naname[i + 1]) {
+                if (naname[i] === -2) { naname[i] = -65; naname[i + 1] = -1; }
+                else { naname[i] = -66; naname[i + 1] = -1; }
+              } else {
+                naname[i] = -50;
+              }
+            }
+          }
+        } else if (nanameFlag === 1) {
+          if (naname[i] === -2 || naname[i] === -3) {
+            if (naname[i] === naname[i + 1]) {
+              if (naname[i] === -2) { naname[i] = -65; naname[i + 1] = -1; }
+              else { naname[i] = -66; naname[i + 1] = -1; }
+            } else {
+              naname[i] = -50;
+            }
+          }
+        }
+      }
+    }
+    for (i = 0; naname[i] !== 0; i++) {
+      if (naname[i] === -50) {
+        for (let j = 1; naname[i + j] === -50; j++) {
+          naname[i + j] = -1;
+          naname[i] -= 50;
+        }
+      }
+    }
+    return naname;
+  }
+
+  const cp = compress(shortPass);
+  const naname = compressNaname(cp);
+
+  return { nodeRow, nodeColumn, shortPass, cp, naname, cellPath, finalX, finalY, finalDir, popped };
+}
+
+/* ============================================================
+   2) 可視化
+   ============================================================ */
+const maze = makeMaze();
+const result = solveMaze(maze);
+
+const CELL = 34;
+const MARGIN = 34;
+const canvas = document.getElementById("mazeCanvas");
+const ctx = canvas.getContext("2d");
+const size = MARGIN * 2 + CELL * 16;
+canvas.width = size;
+canvas.height = size;
+
+function px(x) { return MARGIN + x * CELL; }
+function pyFromGridY(y) { return MARGIN + (16 - y) * CELL; } // flip so y increases upward
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function costColor(cost) {
+  if (cost >= DIJK_WALLCOST) return null;
+  const t = Math.max(0, Math.min(1, cost / 200));
+  // near goal = warm, far = cool
+  const hue = 210 - t * 210; // 210 (blue) -> 0 (red)
+  return `hsl(${hue}, 70%, 55%)`;
+}
+
+function drawMaze() {
+  const w = ctx;
+  w.clearRect(0, 0, canvas.width, canvas.height);
+  w.font = "9px monospace";
+
+  // cost heat cells (draw underneath as translucent fill per node "territory")
+  if (document.getElementById("costToggle").checked) {
+    for (let x = 0; x < 16; x++) {
+      for (let y = 0; y <= 16; y++) {
+        const node = result.nodeRow[x][y];
+        if (node.cost >= DIJK_WALLCOST) continue;
+        const c = costColor(node.cost);
+        w.fillStyle = c;
+        w.globalAlpha = 0.18;
+        w.fillRect(px(x), pyFromGridY(y) - 3, CELL, 6);
+        w.globalAlpha = 1;
+        w.fillStyle = cssVar("--text");
+        w.fillText(node.cost, px(x) + CELL / 2 - 8, pyFromGridY(y) + 3);
+      }
+    }
+    for (let x = 0; x <= 16; x++) {
+      for (let y = 0; y < 16; y++) {
+        const node = result.nodeColumn[x][y];
+        if (node.cost >= DIJK_WALLCOST) continue;
+        const c = costColor(node.cost);
+        w.fillStyle = c;
+        w.globalAlpha = 0.18;
+        w.fillRect(px(x) - 3, pyFromGridY(y + 1), 6, CELL);
+        w.globalAlpha = 1;
+        w.fillStyle = cssVar("--text");
+        w.fillText(node.cost, px(x) - 8, pyFromGridY(y + 0.5) + 3);
+      }
+    }
+  }
+
+  // grid dots
+  w.fillStyle = cssVar("--grid");
+  for (let x = 0; x <= 16; x++) {
+    for (let y = 0; y <= 16; y++) {
+      w.beginPath();
+      w.arc(px(x), pyFromGridY(y), 1.4, 0, Math.PI * 2);
+      w.fill();
+    }
+  }
+
+  // walls
+  w.strokeStyle = cssVar("--wall");
+  w.lineWidth = 3;
+  w.lineCap = "round";
+  for (let y = 0; y <= 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      if ((maze.Row[y] & (1 << x)) === (1 << x)) {
+        w.beginPath();
+        w.moveTo(px(x), pyFromGridY(y));
+        w.lineTo(px(x + 1), pyFromGridY(y));
+        w.stroke();
+      }
+    }
+  }
+  for (let x = 0; x <= 16; x++) {
+    for (let y = 0; y < 16; y++) {
+      if ((maze.Column[x] & (1 << y)) === (1 << y)) {
+        w.beginPath();
+        w.moveTo(px(x), pyFromGridY(y));
+        w.lineTo(px(x), pyFromGridY(y + 1));
+        w.stroke();
+      }
+    }
+  }
+
+  // start / goal markers
+  w.fillStyle = cssVar("--start");
+  w.beginPath();
+  w.arc(px(0.5), pyFromGridY(0.5), 6, 0, Math.PI * 2);
+  w.fill();
+
+  w.fillStyle = cssVar("--goal");
+  w.fillRect(px(G_Gool_X) + 2, pyFromGridY(G_Gool_Y + 2) + 2, CELL * 2 - 4, CELL * 2 - 4);
+
+  // shortest path polyline
+  if (document.getElementById("pathToggle").checked) {
+    w.strokeStyle = cssVar("--path");
+    w.lineWidth = 3;
+    w.beginPath();
+    result.cellPath.forEach((step, idx) => {
+      const p = nodeScreenPos(step);
+      if (idx === 0) w.moveTo(p.x, p.y);
+      else w.lineTo(p.x, p.y);
+    });
+    w.stroke();
+  }
+
+  drawMouse();
+}
+
+function nodeScreenPos(step) {
+  if (step.isRow) return { x: px(step.x + 0.5), y: pyFromGridY(step.y) };
+  return { x: px(step.x), y: pyFromGridY(step.y + 0.5) };
+}
+
+let animIndex = 0;
+let playing = false;
+let playTimer = null;
+
+function drawMouse() {
+  const step = result.cellPath[Math.min(animIndex, result.cellPath.length - 1)];
+  const p = nodeScreenPos(step);
+  ctx.fillStyle = cssVar("--mouse");
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = cssVar("--panel");
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function updateStats() {
+  document.getElementById("statPopped").textContent = result.popped;
+  document.getElementById("statStartCost").textContent = result.nodeRow[0][1].cost;
+  document.getElementById("statPathLen").textContent = result.cellPath.length;
+  document.getElementById("statFinalPos").textContent = `x=${result.finalX}, y=${result.finalY}`;
+  const dirNames = ["North(0)", "NE(1)", "East(2)", "SE(3)", "South(4)", "SW(5)", "West(6)", "NW(7)"];
+  document.getElementById("statFinalDir").textContent = dirNames[result.finalDir];
+  document.getElementById("statStep").textContent = `${Math.min(animIndex, result.cellPath.length - 1)} / ${result.cellPath.length - 1}`;
+}
+
+function fillArrayTable() {
+  const tbody = document.querySelector("#arrTable tbody");
+  const rows = [];
+  let n = 0;
+  while (result.shortPass[n] !== 0 || result.cp[n] !== 0 || result.naname[n] !== 0) {
+    rows.push(`<tr><td>${n}</td><td>${result.shortPass[n]}</td><td>${result.cp[n]}</td><td>${result.naname[n]}</td></tr>`);
+    n++;
+    if (n > 254) break;
+  }
+  tbody.innerHTML = rows.join("");
+}
+
+function render() {
+  drawMaze();
+  updateStats();
+}
+
+document.getElementById("costToggle").addEventListener("change", render);
+document.getElementById("pathToggle").addEventListener("change", render);
+
+document.getElementById("stepBtn").addEventListener("click", () => {
+  animIndex = Math.min(animIndex + 1, result.cellPath.length - 1);
+  render();
+});
+
+document.getElementById("resetBtn").addEventListener("click", () => {
+  stopPlaying();
+  animIndex = 0;
+  render();
+});
+
+function stopPlaying() {
+  playing = false;
+  document.getElementById("playBtn").textContent = "再生";
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+}
+
+document.getElementById("playBtn").addEventListener("click", () => {
+  if (playing) { stopPlaying(); return; }
+  playing = true;
+  document.getElementById("playBtn").textContent = "一時停止";
+  const speedEl = document.getElementById("speed");
+  const tick = () => {
+    if (animIndex >= result.cellPath.length - 1) { stopPlaying(); return; }
+    animIndex++;
+    render();
+  };
+  const interval = 260 - Number(speedEl.value) * 22;
+  playTimer = setInterval(tick, Math.max(30, interval));
+});
+
+document.getElementById("speed").addEventListener("change", () => {
+  if (playing) { stopPlaying(); document.getElementById("playBtn").click(); }
+});
+
+fillArrayTable();
+render();
+</script>
