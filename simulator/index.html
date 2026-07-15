@@ -105,6 +105,22 @@
   .arr-scroll { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
   .section-title { font-size: 0.9rem; font-weight: 600; margin: 0 0 8px; }
   input[type="range"] { width: 110px; }
+  .note.error { border-color: var(--mouse); background: rgba(220, 38, 38, 0.12); }
+  textarea, pre.code {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: "SFMono-Regular", Consolas, "Courier New", monospace;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    padding: 8px;
+    resize: vertical;
+  }
+  pre.code { max-height: 220px; overflow: auto; margin: 0; white-space: pre; }
+  .hint { font-size: 0.75rem; color: var(--muted); margin: 6px 0 0; }
 </style>
 
 <div class="layout">
@@ -129,6 +145,19 @@
         <span><i class="swatch" style="background:var(--goal)"></i>ゴール</span>
         <span><i class="swatch" style="background:var(--path)"></i>最短経路</span>
         <span><i class="swatch" style="background:var(--mouse)"></i>マウス（アニメーション）</span>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <p class="section-title">迷路を自分で建てる</p>
+      <div class="controls">
+        <label class="toggle"><input type="checkbox" id="editToggle">壁編集モード</label>
+        <button id="clearBtn" class="secondary">内壁を全消去</button>
+        <button id="defaultBtn" class="secondary">デフォルト迷路に戻す</button>
+      </div>
+      <p class="hint">編集モードON時、壁の線（マスとマスの境目）をクリックすると壁のON/OFFを切り替えられます。外周の壁は固定です。壁を変えるたびに自動で再探索します。</p>
+      <div id="errorBanner" class="note error" style="display:none; margin-top:10px;">
+        現在の壁配置ではスタートからゴールへ到達できません。直前まで有効だった探索結果を表示しています。
       </div>
     </div>
   </div>
@@ -161,6 +190,24 @@
           <tbody></tbody>
         </table>
       </div>
+    </div>
+
+    <div class="panel">
+      <p class="section-title">Maze_setting() 用にエクスポート</p>
+      <pre class="code" id="exportCode"></pre>
+      <div class="controls" style="margin-top:8px;">
+        <button id="copyBtn" class="secondary">コピー</button>
+      </div>
+      <p class="hint">Maze_Dijkstra.c の Maze_setting() 内の代入文をこの内容に置き換えれば、今組んだ迷路をロボット側にそのまま移植できます。</p>
+    </div>
+
+    <div class="panel">
+      <p class="section-title">迷路データを読み込む</p>
+      <textarea id="importText" rows="4" placeholder="G_Maze_Row[0] = 0b1111111111111111;&#10;...&#10;G_Maze_Column[16] = 0b1111111111111111;"></textarea>
+      <div class="controls" style="margin-top:8px;">
+        <button id="importApplyBtn" class="secondary">適用</button>
+      </div>
+      <p class="hint">Maze_Dijkstra.c の Maze_setting() をそのまま貼り付けて読み込めます（G_Maze_Row[0..16] / G_Maze_Column[0..16] が必要）。</p>
     </div>
   </div>
 </div>
@@ -448,7 +495,7 @@ function solveMaze(maze) {
    2) 可視化
    ============================================================ */
 const maze = makeMaze();
-const result = solveMaze(maze);
+let result = solveMaze(maze);
 
 const CELL = 34;
 const MARGIN = 34;
@@ -543,6 +590,22 @@ function drawMaze() {
     }
   }
 
+  // hover preview for wall editing
+  if (hoverSeg && document.getElementById("editToggle").checked) {
+    w.strokeStyle = hoverSeg.boundary ? "rgba(220,38,38,0.65)" : cssVar("--accent");
+    w.lineWidth = 6;
+    w.lineCap = "round";
+    w.beginPath();
+    if (hoverSeg.type === "h") {
+      w.moveTo(px(hoverSeg.seg), pyFromGridY(hoverSeg.line));
+      w.lineTo(px(hoverSeg.seg + 1), pyFromGridY(hoverSeg.line));
+    } else {
+      w.moveTo(px(hoverSeg.line), pyFromGridY(hoverSeg.seg));
+      w.lineTo(px(hoverSeg.line), pyFromGridY(hoverSeg.seg + 1));
+    }
+    w.stroke();
+  }
+
   // start / goal markers
   w.fillStyle = cssVar("--start");
   w.beginPath();
@@ -616,6 +679,161 @@ function render() {
   updateStats();
 }
 
+/* ============================================================
+   3) 迷路編集（壁のクリックトグル、エクスポート／インポート）
+   ============================================================ */
+let hoverSeg = null;
+
+function screenToGrid(evt) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mx = (evt.clientX - rect.left) * scaleX;
+  const my = (evt.clientY - rect.top) * scaleY;
+  return { gx: (mx - MARGIN) / CELL, gy: 16 - (my - MARGIN) / CELL };
+}
+
+// Finds the wall segment (horizontal or vertical) nearest a grid-space point,
+// requiring the click to land in the middle portion of a segment (not near a
+// corner) so that intersections don't ambiguously resolve to either axis.
+function findNearestWallSegment(gx, gy) {
+  const THRESH = 0.28;
+  const hLineY = Math.round(gy);
+  const hSegX = Math.floor(gx);
+  const hFrac = gx - hSegX;
+  const hDist = Math.abs(gy - hLineY);
+  const hOk = hLineY >= 0 && hLineY <= 16 && hSegX >= 0 && hSegX < 16 && hFrac > 0.12 && hFrac < 0.88 && hDist < THRESH;
+
+  const vLineX = Math.round(gx);
+  const vSegY = Math.floor(gy);
+  const vFrac = gy - vSegY;
+  const vDist = Math.abs(gx - vLineX);
+  const vOk = vLineX >= 0 && vLineX <= 16 && vSegY >= 0 && vSegY < 16 && vFrac > 0.12 && vFrac < 0.88 && vDist < THRESH;
+
+  let best = null;
+  if (hOk) best = { type: "h", line: hLineY, seg: hSegX, dist: hDist };
+  if (vOk && (!best || vDist < best.dist)) best = { type: "v", line: vLineX, seg: vSegY, dist: vDist };
+  if (!best) return null;
+  best.boundary = best.line === 0 || best.line === 16;
+  return best;
+}
+
+function toggleWallSegment(seg) {
+  if (!seg || seg.boundary) return false;
+  if (seg.type === "h") maze.Row[seg.line] ^= (1 << seg.seg);
+  else maze.Column[seg.line] ^= (1 << seg.seg);
+  return true;
+}
+
+function recompute() {
+  animIndex = 0;
+  stopPlaying();
+  try {
+    result = solveMaze(maze);
+    document.getElementById("errorBanner").style.display = "none";
+  } catch (e) {
+    document.getElementById("errorBanner").style.display = "block";
+  }
+  fillArrayTable();
+  updateExportCode();
+  render();
+}
+
+function toBin16(n) {
+  return (n & 0xffff).toString(2).padStart(16, "0");
+}
+
+function updateExportCode() {
+  const lines = [];
+  for (let i = 0; i < 17; i++) lines.push(`G_Maze_Row[${i}] = 0b${toBin16(maze.Row[i])};`);
+  for (let i = 0; i < 17; i++) lines.push(`G_Maze_Column[${i}] = 0b${toBin16(maze.Column[i])};`);
+  document.getElementById("exportCode").textContent = lines.join("\n");
+}
+
+function applyImport() {
+  const text = document.getElementById("importText").value;
+  const rowMatches = [...text.matchAll(/G_Maze_Row\[(\d+)\]\s*=\s*([^;]+);/g)];
+  const colMatches = [...text.matchAll(/G_Maze_Column\[(\d+)\]\s*=\s*([^;]+);/g)];
+  if (rowMatches.length !== 17 || colMatches.length !== 17) {
+    alert("G_Maze_Row[0..16] と G_Maze_Column[0..16] が 17 個ずつ見つかりませんでした。Maze_setting() の中身をそのまま貼り付けてください。");
+    return;
+  }
+  const newRow = new Array(17).fill(NaN);
+  const newCol = new Array(17).fill(NaN);
+  for (const m of rowMatches) newRow[Number(m[1])] = Number(m[2].trim());
+  for (const m of colMatches) newCol[Number(m[1])] = Number(m[2].trim());
+  if (newRow.some(Number.isNaN) || newCol.some(Number.isNaN)) {
+    alert("数値として解釈できない値がありました。0b/0x/10進数のいずれかの形式で指定してください。");
+    return;
+  }
+  maze.Row = newRow;
+  maze.Column = newCol;
+  recompute();
+}
+
+canvas.addEventListener("click", (evt) => {
+  if (!document.getElementById("editToggle").checked) return;
+  const { gx, gy } = screenToGrid(evt);
+  const seg = findNearestWallSegment(gx, gy);
+  if (!seg || seg.boundary) return;
+  toggleWallSegment(seg);
+  recompute();
+});
+
+canvas.addEventListener("mousemove", (evt) => {
+  if (!document.getElementById("editToggle").checked) {
+    if (hoverSeg) { hoverSeg = null; render(); }
+    return;
+  }
+  const { gx, gy } = screenToGrid(evt);
+  hoverSeg = findNearestWallSegment(gx, gy);
+  render();
+});
+
+canvas.addEventListener("mouseleave", () => {
+  if (hoverSeg) { hoverSeg = null; render(); }
+});
+
+document.getElementById("editToggle").addEventListener("change", (evt) => {
+  canvas.style.cursor = evt.target.checked ? "crosshair" : "default";
+  hoverSeg = null;
+  render();
+});
+
+document.getElementById("clearBtn").addEventListener("click", () => {
+  maze.Row = new Array(17).fill(0);
+  maze.Column = new Array(17).fill(0);
+  maze.Row[0] = 0xffff; maze.Row[16] = 0xffff;
+  maze.Column[0] = 0xffff; maze.Column[16] = 0xffff;
+  recompute();
+});
+
+document.getElementById("defaultBtn").addEventListener("click", () => {
+  const def = makeMaze();
+  maze.Row = def.Row;
+  maze.Column = def.Column;
+  recompute();
+});
+
+document.getElementById("importApplyBtn").addEventListener("click", applyImport);
+
+document.getElementById("copyBtn").addEventListener("click", async () => {
+  const text = document.getElementById("exportCode").textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById("copyBtn");
+    const prev = btn.textContent;
+    btn.textContent = "コピーしました";
+    setTimeout(() => { btn.textContent = prev; }, 1200);
+  } catch (e) {
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById("exportCode"));
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+});
+
 document.getElementById("costToggle").addEventListener("change", render);
 document.getElementById("pathToggle").addEventListener("change", render);
 
@@ -655,5 +873,6 @@ document.getElementById("speed").addEventListener("change", () => {
 });
 
 fillArrayTable();
+updateExportCode();
 render();
 </script>
