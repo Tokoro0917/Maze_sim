@@ -1,0 +1,4 @@
+*.exe
+*.o
+*.obj
+sim_export.json

@@ -18,3 +18,15 @@
 - 最短経路のアニメーション再生
 - 壁編集モードでの迷路の自作、内壁全消去／デフォルト迷路への復元
 - 迷路データのエクスポート（`G_Maze_Row[]` / `G_Maze_Column[]`）とインポート（`Maze_Dijkstra.c` の `Maze_setting()` をそのまま貼り付け可能）
+
+シミュレータ内のアルゴリズムは `Maze_Dijkstra.c` をJavaScriptへ手動移植したもので、ブラウザ単体では動きません（Cコードそのものを実行しているわけではありません）。
+
+## 移植の正しさの検証
+
+`simulator/verify_against_c.mjs` は、`Maze_Dijkstra.c` を実際に `gcc -DSIM_EXPORT` でコンパイル・実行し、その出力（各ノードのコスト・PASS/CP/NANAME 配列・最終位置と方向）をシミュレータのJS移植の計算結果と1項目ずつ突き合わせます。C コンパイラ（gcc）が PATH に必要です。
+
+```sh
+node simulator/verify_against_c.mjs
+```
+
+`SIM_EXPORT` はデバッグ用のJSON出力（`sim_export.json`）を追加するだけのマクロで、未定義時（通常のロボット向けビルド）の出力・動作には一切影響しません。

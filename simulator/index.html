@@ -175,11 +175,18 @@
       </div>
     </div>
 
+    <div class="note" style="background: rgba(22,163,74,0.12); border-color: var(--goal);">
+      <strong>実プログラムとの整合性を自動検証済み：</strong>
+      <code>simulator/verify_against_c.mjs</code> が Maze_Dijkstra.c を <code>gcc -DSIM_EXPORT</code> で実際にコンパイル・実行し、
+      その出力（各ノードのコスト・PASS/CP/NANAME 配列・最終位置と方向）をこのシミュレータの JS 移植と1項目ずつ突き合わせています。
+      デフォルト迷路でこの照合はすべて一致しました。壁を編集すると JS 側のみで再計算されるため、都度この検証コマンドが再実行されるわけではありません。
+    </div>
+
     <div class="note">
       <strong>移植時に見つかった注意点：</strong>
       C側 (<code>main()</code> の経路復元ループ) では <code>final_dir</code> がループ開始時点の方向のまま更新されず、
       ゴール到達直前の実際の向きではなく「スタート直後の向き」が使われています（<code>last_dir</code> が一度も再代入されない）。
-      このシミュレータは C の挙動をそのまま再現していますが、ロボットの初期姿勢設定に使うなら要確認です。
+      これは実際の C プログラムの挙動そのもの（上記の検証で確認済み）なので、ロボットの初期姿勢設定に使っているなら仕様として問題ないか確認をおすすめします。
     </div>
 
     <div class="panel">

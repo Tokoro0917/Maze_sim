@@ -539,6 +539,63 @@ int main()
 		printf("PASS: %2d CP: %2d NANAME %3d \n\r", G_Short_Pass[i], G_Short_Pass_CP[i], G_Short_Pass_NANAME[i]);
 	}
 
+#ifdef SIM_EXPORT
+	/* Machine-readable dump for the browser simulator (simulator/verify_against_c.mjs)
+	   to diff its JS port against this actual compiled/executed program. Only
+	   built when SIM_EXPORT is defined; the normal robot build is unaffected. */
+	{
+		FILE *fp = fopen("sim_export.json", "w");
+		if (fp != NULL)
+		{
+			fprintf(fp, "{\n");
+
+			fprintf(fp, "  \"mazeRow\": [");
+			for (int j = 0; j < 17; j++)
+				fprintf(fp, "%d%s", G_Maze_Row[j], j < 16 ? "," : "");
+			fprintf(fp, "],\n");
+
+			fprintf(fp, "  \"mazeColumn\": [");
+			for (int j = 0; j < 17; j++)
+				fprintf(fp, "%d%s", G_Maze_Column[j], j < 16 ? "," : "");
+			fprintf(fp, "],\n");
+
+			fprintf(fp, "  \"nodeRowCost\": [");
+			for (int x = 0; x < 17; x++)
+				for (int y = 0; y < 17; y++)
+					fprintf(fp, "%d%s", node_Row[x][y].cost, (x == 16 && y == 16) ? "" : ",");
+			fprintf(fp, "],\n");
+
+			fprintf(fp, "  \"nodeColumnCost\": [");
+			for (int x = 0; x < 17; x++)
+				for (int y = 0; y < 17; y++)
+					fprintf(fp, "%d%s", node_Column[x][y].cost, (x == 16 && y == 16) ? "" : ",");
+			fprintf(fp, "],\n");
+
+			fprintf(fp, "  \"shortPass\": [");
+			for (int i = 0; i < 255; i++)
+				fprintf(fp, "%d%s", G_Short_Pass[i], i < 254 ? "," : "");
+			fprintf(fp, "],\n");
+
+			fprintf(fp, "  \"cp\": [");
+			for (int i = 0; i < 255; i++)
+				fprintf(fp, "%d%s", G_Short_Pass_CP[i], i < 254 ? "," : "");
+			fprintf(fp, "],\n");
+
+			fprintf(fp, "  \"naname\": [");
+			for (int i = 0; i < 255; i++)
+				fprintf(fp, "%d%s", G_Short_Pass_NANAME[i], i < 254 ? "," : "");
+			fprintf(fp, "],\n");
+
+			fprintf(fp, "  \"finalX\": %d,\n", final_x);
+			fprintf(fp, "  \"finalY\": %d,\n", final_y);
+			fprintf(fp, "  \"finalDir\": %d\n", final_dir);
+			fprintf(fp, "}\n");
+
+			fclose(fp);
+		}
+	}
+#endif
+
 	return 0;
 }
 
