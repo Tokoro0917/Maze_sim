@@ -155,10 +155,44 @@
         <button id="clearBtn" class="secondary">内壁を全消去</button>
         <button id="defaultBtn" class="secondary">デフォルト迷路に戻す</button>
       </div>
-      <p class="hint">編集モードON時、壁の線（マスとマスの境目）をクリックすると壁のON/OFFを切り替えられます。外周の壁は固定です。壁を変えるたびに自動で再探索します。</p>
+      <div class="controls" style="margin-top:8px;">
+        <button id="rotateBtn" class="secondary">90°回転</button>
+        <button id="flipHBtn" class="secondary">左右反転</button>
+        <button id="flipVBtn" class="secondary">上下反転</button>
+      </div>
+      <p class="hint">編集モードON時、壁の線（マスとマスの境目）をクリックすると壁のON/OFFを切り替えられます。外周の壁は固定です。壁を変えるたびに自動で再探索します。回転・反転ボタンは、写真から読み込んだ迷路の向き（スタート位置）を実際の迷路に合わせるのにも使えます。</p>
       <div id="errorBanner" class="note error" style="display:none; margin-top:10px;">
         現在の壁配置ではスタートからゴールへ到達できません。直前まで有効だった探索結果を表示しています。
       </div>
+    </div>
+
+    <div class="panel" id="photoPanel" style="margin-top:14px;">
+      <p class="section-title">写真から壁を自動検出</p>
+      <p class="hint" style="margin-top:0;">迷路を真上に近い角度で撮影した写真を読み込み、外周4隅を「写真に写っている通りの左上→右上→右下→左下」の順にクリックすると、壁の位置を自動検出して迷路に反映できます。スタート位置が写真のどこに写っているかは気にしなくて構いません。向きが実際の迷路と違う場合は、上の「迷路を自分で建てる」パネルの回転・反転ボタンで合わせられます。</p>
+      <div class="controls">
+        <input type="file" id="photoInput" accept="image/*">
+      </div>
+      <p class="hint" id="cornerStatus">画像を選択してください。</p>
+      <div class="canvas-wrap" style="margin-top:8px;">
+        <canvas id="photoCanvas" style="max-width:100%; height:auto; border:1px solid var(--border); border-radius:8px; display:none;"></canvas>
+      </div>
+      <div class="controls" style="margin-top:10px;">
+        <label class="toggle" style="flex-direction:column; align-items:stretch; gap:2px;">
+          インクの濃さのしきい値（暗いほど「線」と判定）
+          <input type="range" id="photoThreshold" min="0" max="235" value="140">
+        </label>
+      </div>
+      <div class="controls" style="margin-top:8px;">
+        <label class="toggle" style="flex-direction:column; align-items:stretch; gap:2px;">
+          線の連続性のしきい値（実線＝壁 / 点線＝壁なし の境目）
+          <input type="range" id="coverageThreshold" min="0.3" max="0.95" step="0.05" value="0.7">
+        </label>
+      </div>
+      <div class="controls" style="margin-top:8px;">
+        <button id="resetCornersBtn" class="secondary">コーナーやり直し</button>
+        <button id="applyPhotoBtn" disabled>検出結果を迷路に適用</button>
+      </div>
+      <p class="hint">壁は実線、壁なしの区画は点線のグリッド線として描かれている画像を想定しています。「インクの濃さ」で線かどうかを判定し、「線の連続性」でその線が実線（壁）か点線（壁なし）かを判定します。点線が壁として誤検出される場合は連続性のしきい値を上げ、実線が拾えない場合は下げてください。コーナーのマーカーはドラッグで微調整できます。最後は壁編集モードで手直ししてください。</p>
     </div>
   </div>
 
@@ -822,7 +856,317 @@ document.getElementById("defaultBtn").addEventListener("click", () => {
   recompute();
 });
 
+// Rotating/flipping the maze about its own center leaves the fixed 2x2 goal
+// box (7,7)-(9,9) unchanged (it's already centered), so only the start
+// corner's alignment with node_Row[0][1] needs the user's attention — these
+// are how a maze detected from a photo taken at an arbitrary orientation
+// gets lined up with the algorithm's fixed start position.
+function rotate90(m) {
+  const newRow = new Array(17).fill(0);
+  const newColumn = new Array(17).fill(0);
+  for (let y = 0; y <= 16; y++) for (let x = 0; x < 16; x++) if ((m.Row[y] >> x) & 1) newColumn[y] |= 1 << (15 - x);
+  for (let x = 0; x <= 16; x++) for (let y = 0; y < 16; y++) if ((m.Column[x] >> y) & 1) newRow[16 - x] |= 1 << y;
+  return { Row: newRow, Column: newColumn };
+}
+function flipHorizontal(m) {
+  const newRow = new Array(17).fill(0);
+  const newColumn = new Array(17).fill(0);
+  for (let y = 0; y <= 16; y++) for (let x = 0; x < 16; x++) if ((m.Row[y] >> x) & 1) newRow[y] |= 1 << (15 - x);
+  for (let x = 0; x <= 16; x++) newColumn[16 - x] = m.Column[x];
+  return { Row: newRow, Column: newColumn };
+}
+function flipVertical(m) {
+  const newRow = new Array(17).fill(0);
+  const newColumn = new Array(17).fill(0);
+  for (let y = 0; y <= 16; y++) newRow[16 - y] = m.Row[y];
+  for (let x = 0; x <= 16; x++) for (let y = 0; y < 16; y++) if ((m.Column[x] >> y) & 1) newColumn[x] |= 1 << (15 - y);
+  return { Row: newRow, Column: newColumn };
+}
+
+document.getElementById("rotateBtn").addEventListener("click", () => {
+  const r = rotate90(maze);
+  maze.Row = r.Row; maze.Column = r.Column;
+  recompute();
+});
+document.getElementById("flipHBtn").addEventListener("click", () => {
+  const r = flipHorizontal(maze);
+  maze.Row = r.Row; maze.Column = r.Column;
+  recompute();
+});
+document.getElementById("flipVBtn").addEventListener("click", () => {
+  const r = flipVertical(maze);
+  maze.Row = r.Row; maze.Column = r.Column;
+  recompute();
+});
+
 document.getElementById("importApplyBtn").addEventListener("click", applyImport);
+
+/* ============================================================
+   4) 写真からの壁検出（透視変換キャリブレーション + 明るさ判定）
+   ============================================================ */
+function solveLinear8x8(A, b) {
+  const n = A.length;
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    [M[col], M[piv]] = [M[piv], M[col]];
+    const pv = M[col][col];
+    if (Math.abs(pv) < 1e-12) continue;
+    for (let c = col; c <= n; c++) M[col][c] /= pv;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const factor = M[r][col];
+      if (factor === 0) continue;
+      for (let c = col; c <= n; c++) M[r][c] -= factor * M[col][c];
+    }
+  }
+  return M.map((row) => row[n]);
+}
+// 4-point planar homography (DLT), grid-space (x,y) -> photo-pixel-space (X,Y).
+function computeHomography(src, dst) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [X, Y] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -x * X, -y * X]); b.push(X);
+    A.push([0, 0, 0, x, y, 1, -x * Y, -y * Y]); b.push(Y);
+  }
+  const h = solveLinear8x8(A, b);
+  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+}
+function applyHomography(h, x, y) {
+  const denom = h[6] * x + h[7] * y + h[8];
+  return [(h[0] * x + h[1] * y + h[2]) / denom, (h[3] * x + h[4] * y + h[5]) / denom];
+}
+
+// Many maze diagrams draw a line at EVERY grid segment: a solid line where a
+// wall actually stands, and a dotted/dashed "grid guide" line where it's
+// open. A single darkness threshold can't tell those apart (both are dark
+// ink) — what distinguishes them is how much of the segment's length is
+// actually covered. So this measures a coverage ratio (fraction of
+// along-segment sample points that hit a dark pixel, searching a small
+// perpendicular band at each to tolerate calibration slop) rather than just
+// "is there a dark pixel here at all".
+function wallCoverageRatio(H, imageData, type, line, seg, darkThreshold) {
+  const alongSteps = 15;
+  const perpOffsets = [-0.07, -0.035, 0, 0.035, 0.07];
+  let darkAlongCount = 0;
+  for (let t = 0; t < alongSteps; t++) {
+    const alongFrac = 0.08 + (t / (alongSteps - 1)) * 0.84;
+    let hitDark = false;
+    for (const perp of perpOffsets) {
+      let gx, gy;
+      if (type === "h") { gx = seg + alongFrac; gy = line + perp; }
+      else { gx = line + perp; gy = seg + alongFrac; }
+      const [px, py] = applyHomography(H, gx, gy);
+      const ix = Math.round(px), iy = Math.round(py);
+      if (ix < 0 || iy < 0 || ix >= imageData.width || iy >= imageData.height) continue;
+      const idx = (iy * imageData.width + ix) * 4;
+      const lum = 0.299 * imageData.data[idx] + 0.587 * imageData.data[idx + 1] + 0.114 * imageData.data[idx + 2];
+      if (lum < darkThreshold) { hitDark = true; break; }
+    }
+    if (hitDark) darkAlongCount++;
+  }
+  return darkAlongCount / alongSteps;
+}
+
+function isWallDetected(H, imageData, type, line, seg, darkThreshold, coverageThreshold) {
+  return wallCoverageRatio(H, imageData, type, line, seg, darkThreshold) >= coverageThreshold;
+}
+
+const GRID_CORNERS = [[0, 16], [16, 16], [16, 0], [0, 0]]; // TL, TR, BR, BL as clicked, in grid space
+const CORNER_LABELS = ["左上", "右上", "右下", "左下"];
+
+const photoCanvas = document.getElementById("photoCanvas");
+const photoCtx = photoCanvas.getContext("2d");
+let photoImg = null;
+let photoCorners = []; // {x,y} in photoCanvas pixel space, up to 4, in TL/TR/BR/BL order
+let draggingCornerIndex = -1;
+let lastDetection = null; // { maze, H, imageData }
+
+function cornerStatusEl() { return document.getElementById("cornerStatus"); }
+
+function updateCornerStatus() {
+  const el = cornerStatusEl();
+  if (!photoImg) { el.textContent = "画像を選択してください。"; return; }
+  if (photoCorners.length < 4) {
+    el.textContent = `外周の「${CORNER_LABELS[photoCorners.length]}」の角をクリック（${photoCorners.length}/4）`;
+  } else {
+    el.textContent = "4隅を指定しました。マーカーはドラッグで微調整できます。しきい値を見ながら「検出結果を迷路に適用」を押してください。";
+  }
+}
+
+function photoToGrid(evt) {
+  const rect = photoCanvas.getBoundingClientRect();
+  const scaleX = photoCanvas.width / rect.width;
+  const scaleY = photoCanvas.height / rect.height;
+  return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
+}
+
+function runDetectionIfReady() {
+  if (photoCorners.length !== 4) { lastDetection = null; return; }
+  const dst = photoCorners.map((p) => [p.x, p.y]);
+  const H = computeHomography(GRID_CORNERS, dst);
+  const imageData = photoCtx.getImageData(0, 0, photoCanvas.width, photoCanvas.height);
+  const darkThreshold = Number(document.getElementById("photoThreshold").value);
+  const coverageThreshold = Number(document.getElementById("coverageThreshold").value);
+
+  const newRow = new Array(17).fill(0);
+  const newColumn = new Array(17).fill(0);
+  newRow[0] = 0xffff; newRow[16] = 0xffff;
+  newColumn[0] = 0xffff; newColumn[16] = 0xffff;
+  for (let y = 1; y < 16; y++) for (let x = 0; x < 16; x++) if (isWallDetected(H, imageData, "h", y, x, darkThreshold, coverageThreshold)) newRow[y] |= 1 << x;
+  for (let x = 1; x < 16; x++) for (let y = 0; y < 16; y++) if (isWallDetected(H, imageData, "v", x, y, darkThreshold, coverageThreshold)) newColumn[x] |= 1 << y;
+
+  lastDetection = { maze: { Row: newRow, Column: newColumn }, H, imageData };
+}
+
+function renderPhotoPreview() {
+  if (!photoImg) return;
+  photoCtx.clearRect(0, 0, photoCanvas.width, photoCanvas.height);
+  photoCtx.drawImage(photoImg, 0, 0, photoCanvas.width, photoCanvas.height);
+
+  if (photoCorners.length === 4) {
+    runDetectionIfReady();
+    photoCtx.strokeStyle = "rgba(220,38,38,0.9)";
+    photoCtx.lineWidth = 2;
+    const { H } = lastDetection;
+    const darkThreshold = Number(document.getElementById("photoThreshold").value);
+    const coverageThreshold = Number(document.getElementById("coverageThreshold").value);
+    for (let y = 1; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        if (!isWallDetected(H, lastDetection.imageData, "h", y, x, darkThreshold, coverageThreshold)) continue;
+        const [x1, y1] = applyHomography(H, x + 0.15, y);
+        const [x2, y2] = applyHomography(H, x + 0.85, y);
+        photoCtx.beginPath(); photoCtx.moveTo(x1, y1); photoCtx.lineTo(x2, y2); photoCtx.stroke();
+      }
+    }
+    for (let x = 1; x < 16; x++) {
+      for (let y = 0; y < 16; y++) {
+        if (!isWallDetected(H, lastDetection.imageData, "v", x, y, darkThreshold, coverageThreshold)) continue;
+        const [x1, y1] = applyHomography(H, x, y + 0.15);
+        const [x2, y2] = applyHomography(H, x, y + 0.85);
+        photoCtx.beginPath(); photoCtx.moveTo(x1, y1); photoCtx.lineTo(x2, y2); photoCtx.stroke();
+      }
+    }
+    // outer boundary, for visual reference only
+    photoCtx.strokeStyle = "rgba(37,99,235,0.8)";
+    photoCtx.beginPath();
+    GRID_CORNERS.forEach(([gx, gy], idx) => {
+      const [px, py] = applyHomography(H, gx, gy);
+      if (idx === 0) photoCtx.moveTo(px, py); else photoCtx.lineTo(px, py);
+    });
+    photoCtx.closePath();
+    photoCtx.stroke();
+  }
+
+  photoCorners.forEach((p, idx) => {
+    photoCtx.fillStyle = "#f59e0b";
+    photoCtx.beginPath();
+    photoCtx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+    photoCtx.fill();
+    photoCtx.strokeStyle = "#111";
+    photoCtx.lineWidth = 1.5;
+    photoCtx.stroke();
+    photoCtx.fillStyle = "#111";
+    photoCtx.font = "bold 11px sans-serif";
+    photoCtx.fillText(String(idx + 1), p.x - 3, p.y - 10);
+  });
+
+  document.getElementById("applyPhotoBtn").disabled = photoCorners.length !== 4;
+}
+
+// Uses a data: URI (via FileReader) rather than URL.createObjectURL, since
+// the Artifact sandbox's CSP is not guaranteed to allow blob: resource
+// loads — a blocked blob: load fails silently (no onload, no onerror),
+// which looks like the page is stuck forever with no error message.
+function loadPhotoFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    cornerStatusEl().textContent = "画像ファイルを選択してください。";
+    return;
+  }
+  cornerStatusEl().textContent = "画像を読み込んでいます…";
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      photoImg = img;
+      const maxDim = 900;
+      const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+      photoCanvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      photoCanvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      photoCanvas.style.display = "block";
+      photoCorners = [];
+      lastDetection = null;
+      updateCornerStatus();
+      renderPhotoPreview();
+    };
+    img.onerror = () => { cornerStatusEl().textContent = "画像を読み込めませんでした（対応していない形式の可能性があります。HEIC等はJPEG/PNGに変換してください）。"; };
+    img.src = reader.result;
+  };
+  reader.onerror = () => { cornerStatusEl().textContent = "ファイルの読み込みに失敗しました。別のファイルをお試しください。"; };
+  reader.readAsDataURL(file);
+}
+
+document.getElementById("photoInput").addEventListener("change", (evt) => {
+  loadPhotoFile(evt.target.files[0]);
+});
+
+// Dragging a file onto the page without a drop handler makes the browser
+// navigate the whole page to that local file instead — which hangs
+// indefinitely inside the Artifact's sandboxed iframe. Prevent that
+// everywhere, and treat a drop on the photo panel as a file pick.
+["dragover", "drop"].forEach((evtName) => {
+  window.addEventListener(evtName, (evt) => evt.preventDefault());
+});
+document.getElementById("photoPanel").addEventListener("dragover", (evt) => evt.preventDefault());
+document.getElementById("photoPanel").addEventListener("drop", (evt) => {
+  evt.preventDefault();
+  const file = evt.dataTransfer.files && evt.dataTransfer.files[0];
+  loadPhotoFile(file);
+});
+
+photoCanvas.addEventListener("mousedown", (evt) => {
+  if (!photoImg) return;
+  const p = photoToGrid(evt);
+  if (photoCorners.length === 4) {
+    const hitIdx = photoCorners.findIndex((c) => Math.hypot(c.x - p.x, c.y - p.y) < 12);
+    if (hitIdx !== -1) { draggingCornerIndex = hitIdx; return; }
+  }
+  if (photoCorners.length < 4) {
+    photoCorners.push(p);
+    updateCornerStatus();
+    renderPhotoPreview();
+  }
+});
+photoCanvas.addEventListener("mousemove", (evt) => {
+  if (draggingCornerIndex === -1) return;
+  photoCorners[draggingCornerIndex] = photoToGrid(evt);
+  renderPhotoPreview();
+});
+window.addEventListener("mouseup", () => { draggingCornerIndex = -1; });
+
+document.getElementById("photoThreshold").addEventListener("input", () => {
+  if (photoCorners.length === 4) renderPhotoPreview();
+});
+document.getElementById("coverageThreshold").addEventListener("input", () => {
+  if (photoCorners.length === 4) renderPhotoPreview();
+});
+
+document.getElementById("resetCornersBtn").addEventListener("click", () => {
+  photoCorners = [];
+  lastDetection = null;
+  updateCornerStatus();
+  if (photoImg) renderPhotoPreview();
+});
+
+document.getElementById("applyPhotoBtn").addEventListener("click", () => {
+  if (!lastDetection) return;
+  maze.Row = lastDetection.maze.Row;
+  maze.Column = lastDetection.maze.Column;
+  recompute();
+});
 
 document.getElementById("copyBtn").addEventListener("click", async () => {
   const text = document.getElementById("exportCode").textContent;
